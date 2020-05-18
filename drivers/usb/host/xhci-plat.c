@@ -341,96 +341,19 @@ static int xhci_plat_suspend(struct device *dev)
 
 static int xhci_plat_resume(struct device *dev)
 {
-	struct usb_hcd *hcd = dev_get_drvdata(dev);
-	struct xhci_hcd *xhci = hcd_to_xhci(hcd);
-
-	if (!xhci)
-		return 0;
-
-	dev_dbg(dev, "xhci-plat PM resume\n");
-
-	return (!hcd_to_bus(hcd)->skip_resume) ? xhci_resume(xhci, false) : 0;
-}
-#endif
-
-#ifdef CONFIG_PM
-static int xhci_plat_runtime_idle(struct device *dev)
-{
-	/*
-	 * When pm_runtime_put_autosuspend() is called on this device,
-	 * after this idle callback returns the PM core will schedule the
-	 * autosuspend if there is any remaining time until expiry. However,
-	 * when reaching this point because the child_count becomes 0, the
-	 * core does not honor autosuspend in that case and results in
-	 * idle/suspend happening immediately. In order to have a delay
-	 * before suspend we have to call pm_runtime_autosuspend() manually.
-	 */
-	pm_runtime_mark_last_busy(dev);
-	pm_runtime_autosuspend(dev);
-	return -EBUSY;
-}
-
-static int xhci_plat_pm_freeze(struct device *dev)
-{
-	struct usb_hcd *hcd = dev_get_drvdata(dev);
-	struct xhci_hcd *xhci = hcd_to_xhci(hcd);
-
-	if (!xhci)
-		return 0;
-
-	dev_dbg(dev, "xhci-plat freeze\n");
-
-	return xhci_suspend(xhci, false);
-}
-
-static int xhci_plat_pm_restore(struct device *dev)
-{
-	struct usb_hcd *hcd = dev_get_drvdata(dev);
-	struct xhci_hcd *xhci = hcd_to_xhci(hcd);
+	struct usb_hcd	*hcd = dev_get_drvdata(dev);
+	struct xhci_hcd	*xhci = hcd_to_xhci(hcd);
 	int ret;
 
-	if (!xhci)
-		return 0;
+	ret = xhci_resume(xhci, 0);
+	if (ret)
+		return ret;
 
-	dev_dbg(dev, "xhci-plat restore\n");
-
-	ret = xhci_resume(xhci, true);
 	pm_runtime_disable(dev);
 	pm_runtime_set_active(dev);
 	pm_runtime_enable(dev);
-	pm_runtime_mark_last_busy(dev);
 
-	return ret;
-}
-
-static int xhci_plat_runtime_suspend(struct device *dev)
-{
-	struct usb_hcd *hcd = dev_get_drvdata(dev);
-	struct xhci_hcd *xhci = hcd_to_xhci(hcd);
-
-	if (!xhci)
-		return 0;
-
-	dev_dbg(dev, "xhci-plat runtime suspend\n");
-
-	return xhci_suspend(xhci, true);
-}
-
-static int xhci_plat_runtime_resume(struct device *dev)
-{
-	struct usb_hcd *hcd = dev_get_drvdata(dev);
-	struct xhci_hcd *xhci = hcd_to_xhci(hcd);
-	int ret;
-
-	if (!xhci)
-		return 0;
-
-	dev_dbg(dev, "xhci-plat runtime resume\n");
-
-	ret = xhci_resume(xhci, false);
-	pm_runtime_mark_last_busy(dev);
-
-	return ret;
+	return 0;
 }
 
 static const struct dev_pm_ops xhci_plat_pm_ops = {
