@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2019 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2011-2020 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -402,33 +402,42 @@ bool csr_is_bss_id_equal(tHalHandle hHal, tSirBssDescription *pSirBssDesc1,
 	return fEqual;
 }
 
-bool csr_is_conn_state_connected_ibss(tpAniSirGlobal pMac, uint32_t sessionId)
+static bool csr_is_conn_state(tpAniSirGlobal mac_ctx, uint32_t session_id,
+			      eCsrConnectState state)
 {
-	return eCSR_ASSOC_STATE_TYPE_IBSS_CONNECTED ==
-		pMac->roam.roamSession[sessionId].connectState;
+	QDF_BUG(session_id < CSR_ROAM_SESSION_MAX);
+	if (session_id >= CSR_ROAM_SESSION_MAX)
+		return false;
+
+	return mac_ctx->roam.roamSession[session_id].connectState == state;
 }
 
-bool csr_is_conn_state_disconnected_ibss(tpAniSirGlobal pMac,
-					 uint32_t sessionId)
+bool csr_is_conn_state_connected_ibss(tpAniSirGlobal mac_ctx,
+				      uint32_t session_id)
 {
-	return eCSR_ASSOC_STATE_TYPE_IBSS_DISCONNECTED ==
-		pMac->roam.roamSession[sessionId].connectState;
+	return csr_is_conn_state(mac_ctx, session_id,
+				 eCSR_ASSOC_STATE_TYPE_IBSS_CONNECTED);
 }
 
-bool csr_is_conn_state_connected_infra(tpAniSirGlobal pMac, uint32_t sessionId)
+bool csr_is_conn_state_disconnected_ibss(tpAniSirGlobal mac_ctx,
+					 uint32_t session_id)
 {
-	return eCSR_ASSOC_STATE_TYPE_INFRA_ASSOCIATED ==
-		pMac->roam.roamSession[sessionId].connectState;
+	return csr_is_conn_state(mac_ctx, session_id,
+				 eCSR_ASSOC_STATE_TYPE_IBSS_DISCONNECTED);
+}
+
+bool csr_is_conn_state_connected_infra(tpAniSirGlobal mac_ctx,
+				       uint32_t session_id)
+{
+	return csr_is_conn_state(mac_ctx, session_id,
+				 eCSR_ASSOC_STATE_TYPE_INFRA_ASSOCIATED);
 }
 
 bool csr_is_conn_state_connected(tpAniSirGlobal pMac, uint32_t sessionId)
 {
-	if (csr_is_conn_state_connected_ibss(pMac, sessionId)
-	    || csr_is_conn_state_connected_infra(pMac, sessionId)
-	    || csr_is_conn_state_connected_wds(pMac, sessionId))
-		return true;
-	else
-		return false;
+	return csr_is_conn_state_connected_ibss(pMac, sessionId) ||
+		csr_is_conn_state_connected_infra(pMac, sessionId) ||
+		csr_is_conn_state_connected_wds(pMac, sessionId);
 }
 
 bool csr_is_conn_state_infra(tpAniSirGlobal pMac, uint32_t sessionId)
@@ -442,25 +451,27 @@ bool csr_is_conn_state_ibss(tpAniSirGlobal pMac, uint32_t sessionId)
 	       csr_is_conn_state_disconnected_ibss(pMac, sessionId);
 }
 
-bool csr_is_conn_state_connected_wds(tpAniSirGlobal pMac, uint32_t sessionId)
+bool csr_is_conn_state_connected_wds(tpAniSirGlobal mac_ctx,
+				     uint32_t session_id)
 {
-	return eCSR_ASSOC_STATE_TYPE_WDS_CONNECTED ==
-		pMac->roam.roamSession[sessionId].connectState;
+	return csr_is_conn_state(mac_ctx, session_id,
+				 eCSR_ASSOC_STATE_TYPE_WDS_CONNECTED);
 }
 
-bool csr_is_conn_state_connected_infra_ap(tpAniSirGlobal pMac,
-					  uint32_t sessionId)
+bool csr_is_conn_state_connected_infra_ap(tpAniSirGlobal mac_ctx,
+					  uint32_t session_id)
 {
-	return (eCSR_ASSOC_STATE_TYPE_INFRA_CONNECTED ==
-		 pMac->roam.roamSession[sessionId].connectState) ||
-	       (eCSR_ASSOC_STATE_TYPE_INFRA_DISCONNECTED ==
-		 pMac->roam.roamSession[sessionId].connectState);
+	return csr_is_conn_state(mac_ctx, session_id,
+				 eCSR_ASSOC_STATE_TYPE_INFRA_CONNECTED) ||
+		csr_is_conn_state(mac_ctx, session_id,
+				  eCSR_ASSOC_STATE_TYPE_INFRA_DISCONNECTED);
 }
 
-bool csr_is_conn_state_disconnected_wds(tpAniSirGlobal pMac, uint32_t sessionId)
+bool csr_is_conn_state_disconnected_wds(tpAniSirGlobal mac_ctx,
+					uint32_t session_id)
 {
-	return eCSR_ASSOC_STATE_TYPE_WDS_DISCONNECTED ==
-		pMac->roam.roamSession[sessionId].connectState;
+	return csr_is_conn_state(mac_ctx, session_id,
+				 eCSR_ASSOC_STATE_TYPE_WDS_DISCONNECTED);
 }
 
 bool csr_is_conn_state_wds(tpAniSirGlobal pMac, uint32_t sessionId)
@@ -3086,6 +3097,32 @@ static void csr_check_sae_auth(tpAniSirGlobal mac_ctx,
 {
 }
 #endif
+
+bool csr_is_pmkid_found_for_peer(tpAniSirGlobal mac,
+				 tCsrRoamSession *session,
+				 tSirMacAddr peer_mac_addr,
+				 uint8_t *pmkid,
+				 uint16_t pmkid_count)
+{
+	uint32_t i, index;
+	uint8_t *session_pmkid;
+	tPmkidCacheInfo pmkid_cache;
+
+	qdf_mem_zero(&pmkid_cache, sizeof(pmkid_cache));
+	qdf_mem_copy(pmkid_cache.BSSID.bytes, peer_mac_addr, MAC_ADDR_LEN);
+
+	if (!csr_lookup_pmkid_using_bssid(mac, session, &pmkid_cache, &index))
+		return false;
+	session_pmkid = &session->PmkidCacheInfo[index].PMKID[0];
+	for (i = 0; i < pmkid_count; i++) {
+		if (!qdf_mem_cmp(pmkid + (i * CSR_RSN_PMKID_SIZE),
+				 session_pmkid, CSR_RSN_PMKID_SIZE))
+			return true;
+	}
+
+	sme_debug("PMKID in PmkidCacheInfo doesn't match with PMKIDs of peer");
+	return false;
+}
 
 /**
  * csr_get_rsn_information() - to get RSN infomation

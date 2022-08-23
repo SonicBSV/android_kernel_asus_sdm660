@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2019 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2020 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -1200,7 +1200,7 @@ QDF_STATUS wma_roam_scan_offload_rssi_thresh(tp_wma_handle wma_handle,
 	return status;
 }
 
-#ifdef WLAN_FEATURE_ROAM_OFFLOAD
+#ifdef WLAN_DEBUG
 static const char *wma_roam_reason_to_string(uint32_t roam_reason)
 {
 	switch (roam_reason) {
@@ -1222,7 +1222,6 @@ static const char *wma_roam_reason_to_string(uint32_t roam_reason)
 		return "unknown";
 	}
 }
-#endif
 
 static const char *wma_roam_event_to_string(uint32_t roam_reason)
 {
@@ -1258,6 +1257,7 @@ static const char *wma_roam_notif_to_string(uint32_t notif)
 		return "unknown";
 	}
 }
+#endif
 
 /**
  * wma_roam_scan_offload_scan_period() - set roam offload scan period
@@ -3296,9 +3296,14 @@ int wma_roam_synch_event_handler(void *handle, uint8_t *event,
 	 * firmware assert.
 	 */
 	channel = cds_freq_to_chan(wma->interfaces[synch_event->vdev_id].mhz);
-	wma_get_phy_mode(channel,
-			 wma->interfaces[synch_event->vdev_id].chan_width,
-			 &wma->interfaces[synch_event->vdev_id].chanmode);
+	if (param_buf->chan) {
+		wma->interfaces[synch_event->vdev_id].chanmode =
+				WMI_GET_CHANNEL_MODE(param_buf->chan);
+	} else {
+		wma_get_phy_mode(channel,
+				 wma->interfaces[synch_event->vdev_id].chan_width,
+				 &wma->interfaces[synch_event->vdev_id].chanmode);
+	}
 
 	wma->csr_roam_synch_cb(wma->mac_context, roam_synch_ind_ptr,
 			       bss_desc_ptr, SIR_ROAM_SYNCH_COMPLETE);

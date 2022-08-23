@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2019 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2011-2020, 2021 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -1951,13 +1951,31 @@ ol_txrx_pdev_post_attach(ol_txrx_pdev_handle pdev)
 	 */
 	qdf_mem_set(&pdev->rx_pn[0], sizeof(pdev->rx_pn), 0);
 
+	/* WEP: 24-bit PN */
+	pdev->rx_pn[htt_sec_type_wep40].len =
+		pdev->rx_pn[htt_sec_type_wep104].len =
+			pdev->rx_pn[htt_sec_type_wep128].len = 24;
+
+	pdev->rx_pn[htt_sec_type_wep40].cmp =
+		pdev->rx_pn[htt_sec_type_wep104].cmp =
+			pdev->rx_pn[htt_sec_type_wep128].cmp = ol_rx_pn_cmp24;
+
 	/* TKIP: 48-bit TSC, CCMP: 48-bit PN */
 	pdev->rx_pn[htt_sec_type_tkip].len =
 		pdev->rx_pn[htt_sec_type_tkip_nomic].len =
 			pdev->rx_pn[htt_sec_type_aes_ccmp].len = 48;
+
+	pdev->rx_pn[htt_sec_type_aes_ccmp_256].len =
+		pdev->rx_pn[htt_sec_type_aes_gcmp].len =
+			pdev->rx_pn[htt_sec_type_aes_gcmp_256].len = 48;
+
 	pdev->rx_pn[htt_sec_type_tkip].cmp =
 		pdev->rx_pn[htt_sec_type_tkip_nomic].cmp =
 			pdev->rx_pn[htt_sec_type_aes_ccmp].cmp = ol_rx_pn_cmp48;
+
+	pdev->rx_pn[htt_sec_type_aes_ccmp_256].cmp =
+		pdev->rx_pn[htt_sec_type_aes_gcmp].cmp =
+		    pdev->rx_pn[htt_sec_type_aes_gcmp_256].cmp = ol_rx_pn_cmp48;
 
 	/* WAPI: 128-bit PN */
 	pdev->rx_pn[htt_sec_type_wapi].len = 128;
@@ -2273,7 +2291,9 @@ static void ol_txrx_debugfs_exit(ol_txrx_pdev_handle pdev)
 void ol_txrx_pdev_detach(ol_txrx_pdev_handle pdev)
 {
 	struct ol_txrx_stats_req_internal *req, *temp_req;
+#ifdef WLAN_DEBUG
 	int i = 0;
+#endif
 
 	/*checking to ensure txrx pdev structure is not NULL */
 	if (!pdev) {
@@ -3872,7 +3892,9 @@ QDF_STATUS ol_txrx_clear_peer(uint8_t sta_id)
  */
 void peer_unmap_timer_handler(unsigned long data)
 {
+#ifdef WLAN_DEBUG
 	ol_txrx_peer_handle peer = (ol_txrx_peer_handle)data;
+#endif
 
 	WMA_LOGE("%s: all unmap events not received for peer %pK, ref_cnt %d",
 		 __func__, peer, qdf_atomic_read(&peer->ref_cnt));
@@ -4002,6 +4024,26 @@ ol_txrx_peer_find_by_addr(struct ol_txrx_pdev_t *pdev, uint8_t *peer_mac_addr)
 		OL_TXRX_PEER_UNREF_DELETE(peer);
 	}
 	return peer;
+}
+
+void
+ol_txrx_peer_flush_frags(ol_txrx_pdev_handle pdev, uint8_t vdev_id,
+			 uint8_t *peer_mac)
+{
+	struct ol_txrx_peer_t *peer;
+	uint8_t peer_id;
+
+	if (!pdev)
+		return;
+
+	peer = ol_txrx_find_peer_by_addr_inc_ref(pdev, peer_mac, &peer_id);
+
+	if (!peer)
+		return;
+
+	ol_rx_reorder_peer_cleanup(peer->vdev, peer);
+
+	OL_TXRX_PEER_UNREF_DELETE(peer);
 }
 
 /**
@@ -4839,11 +4881,13 @@ static void ol_txrx_disp_peer_stats(ol_txrx_pdev_handle pdev)
 void ol_txrx_stats_display(ol_txrx_pdev_handle pdev,
 				enum qdf_stats_verb_lvl level)
 {
+#ifdef WLAN_DEBUG
 	uint64_t tx_dropped =
 		pdev->stats.pub.tx.dropped.download_fail.pkts
 		  + pdev->stats.pub.tx.dropped.target_discard.pkts
 		  + pdev->stats.pub.tx.dropped.no_ack.pkts
 		  + pdev->stats.pub.tx.dropped.others.pkts;
+#endif
 
 	if (level == QDF_STATS_VERB_LVL_LOW) {
 		QDF_TRACE(QDF_MODULE_ID_TXRX, QDF_TRACE_LEVEL_INFO_LOW,
@@ -5467,6 +5511,42 @@ static inline int ol_txrx_drop_nbuf_list(qdf_nbuf_t buf_list)
 }
 
 /**
+ * ol_txrx_mon() - Wrapper function to invoke mon cb
+ * @data_rx: mon callback function
+ * @msdu: mon packet
+ * @pdev: handle to the physical device
+ * @chan: monitor channel
+ *
+ * Return: None
+ */
+static void ol_txrx_mon(ol_txrx_mon_callback_fp data_rx, qdf_nbuf_t msdu,
+			struct ol_txrx_pdev_t *pdev, uint16_t chan)
+{
+	struct radiotap_header *rthdr;
+	struct ieee80211_hdr_3addr *hdr;
+	void *mon_osif_dev = pdev->mon_osif_dev;
+
+	rthdr = (struct radiotap_header *)qdf_nbuf_data(msdu);
+	hdr = (struct ieee80211_hdr_3addr *)(qdf_nbuf_data(msdu) +
+			rthdr->it_len);
+
+	if (ieee80211_is_qos_nullfunc(hdr->frame_control)) {
+		qdf_nbuf_free(msdu);
+		return;
+	}
+
+	if (ieee80211_is_assoc_resp(hdr->frame_control) ||
+	    ieee80211_is_reassoc_resp(hdr->frame_control)) {
+		ol_htt_mon_note_chan(pdev, chan);
+	}
+
+	if (data_rx(mon_osif_dev, msdu) != QDF_STATUS_SUCCESS) {
+		ol_txrx_err("Frame Rx to HDD failed");
+		qdf_nbuf_free(msdu);
+	}
+}
+
+/**
  * ol_txrx_mon_mgmt_cb(): callback to process management packets
  * for pkt capture mode
  * @ppdev: device handler
@@ -5503,10 +5583,7 @@ ol_txrx_mon_mgmt_cb(void *ppdev, void *nbuf_list, uint8_t vdev_id,
 	while (msdu) {
 		next_buf = qdf_nbuf_queue_next(msdu);
 		qdf_nbuf_set_next(msdu, NULL);   /* Add NULL terminator */
-		if (QDF_STATUS_SUCCESS != data_rx(mon_osif_dev, msdu)) {
-			ol_txrx_err("Frame Rx to HDD failed");
-			qdf_nbuf_free(msdu);
-		}
+		ol_txrx_mon(data_rx, msdu, pdev, pkt_tx_status.chan_num);
 		msdu = next_buf;
 	}
 
@@ -5548,6 +5625,7 @@ bool ol_txrx_mon_mgmt_process(struct mon_rx_status *txrx_status,
 	headroom = qdf_nbuf_headroom(nbuf);
 	qdf_nbuf_push_head(nbuf, headroom);
 	qdf_nbuf_update_radiotap(txrx_status, nbuf, headroom);
+	pkt_tx_status.chan_num = txrx_status->chan_num;
 
 	pkt = cds_alloc_ol_mon_pkt(sched_ctx);
 	if (!pkt)
@@ -5574,6 +5652,7 @@ bool ol_txrx_mon_mgmt_process(struct mon_rx_status *txrx_status,
  *
  * Return: none
  */
+#ifndef CONFIG_HL_SUPPORT
 static QDF_STATUS
 ol_txrx_convert8023to80311(uint8_t *bssid,
 			   qdf_nbuf_t msdu, void *desc)
@@ -5679,6 +5758,7 @@ ol_txrx_convert8023to80311(uint8_t *bssid,
 
 	return status;
 }
+#endif
 
 #define SHORT_PREAMBLE 1
 #define LONG_PREAMBLE  0
@@ -6043,7 +6123,8 @@ ol_txrx_mon_tx_data_cb(void *ppdev, void *nbuf_list, uint8_t vdev_id,
 		/*
 		 * Get the channel info and update the rx status
 		 */
-		if (vdev_id != HTT_INVALID_VDEV) {
+		if (vdev_id != HTT_INVALID_VDEV &&
+		    (!pdev->htt_pdev->mon_ch_info.ch_num)) {
 			cds_get_chan_by_session_id(vdev_id, &chan);
 			ol_htt_mon_note_chan(pdev, chan);
 		}
@@ -6057,12 +6138,7 @@ ol_txrx_mon_tx_data_cb(void *ppdev, void *nbuf_list, uint8_t vdev_id,
 		headroom = qdf_nbuf_headroom(msdu);
 		qdf_nbuf_push_head(msdu, headroom);
 		qdf_nbuf_update_radiotap(&tx_status, msdu, headroom);
-
-		if (QDF_STATUS_SUCCESS != data_rx(mon_osif_dev, msdu)) {
-			ol_txrx_err("Frame Tx to HDD failed");
-			qdf_nbuf_free(msdu);
-		}
-
+		ol_txrx_mon(data_rx, msdu, pdev, 0);
 		msdu = next_buf;
 	}
 
@@ -6084,6 +6160,17 @@ free_buf:
  *
  * Return: none
  */
+#ifdef CONFIG_HL_SUPPORT
+static void
+ol_txrx_mon_rx_data_cb(void *ppdev, void *nbuf_list, uint8_t vdev_id,
+		       uint8_t tid, struct ol_mon_tx_status pkt_tx_status,
+		       bool pkt_format)
+{
+	qdf_nbuf_t buf_list = (qdf_nbuf_t)nbuf_list;
+
+	ol_txrx_drop_nbuf_list(buf_list);
+}
+#else
 static void
 ol_txrx_mon_rx_data_cb(void *ppdev, void *nbuf_list, uint8_t vdev_id,
 		       uint8_t tid, struct ol_mon_tx_status pkt_tx_status,
@@ -6172,7 +6259,8 @@ ol_txrx_mon_rx_data_cb(void *ppdev, void *nbuf_list, uint8_t vdev_id,
 		/*
 		 * Get the channel info and update the rx status
 		 */
-		if (vdev_id != HTT_INVALID_VDEV) {
+		if (vdev_id != HTT_INVALID_VDEV &&
+		    (!pdev->htt_pdev->mon_ch_info.ch_num)) {
 			cds_get_chan_by_session_id(vdev_id, &chan);
 			ol_htt_mon_note_chan(pdev, chan);
 		}
@@ -6204,11 +6292,7 @@ ol_txrx_mon_rx_data_cb(void *ppdev, void *nbuf_list, uint8_t vdev_id,
 		headroom = qdf_nbuf_headroom(msdu);
 		qdf_nbuf_push_head(msdu, headroom);
 		qdf_nbuf_update_radiotap(&rx_status, msdu, headroom);
-
-		if (QDF_STATUS_SUCCESS != data_rx(mon_osif_dev, msdu)) {
-			ol_txrx_err("Frame Rx to HDD failed");
-			qdf_nbuf_free(msdu);
-		}
+		ol_txrx_mon(data_rx, msdu, pdev, 0);
 		msdu = next_buf;
 	}
 
@@ -6217,6 +6301,7 @@ ol_txrx_mon_rx_data_cb(void *ppdev, void *nbuf_list, uint8_t vdev_id,
 free_buf:
 	drop_count = ol_txrx_drop_nbuf_list(buf_list);
 }
+#endif
 
 /**
  * ol_txrx_pktcapture_status_map() - map Tx status for data packets

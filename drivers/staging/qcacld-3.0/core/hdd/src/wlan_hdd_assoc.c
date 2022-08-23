@@ -54,6 +54,7 @@
 #include <wlan_logging_sock_svc.h>
 #include "wlan_hdd_tsf.h"
 #include "wlan_hdd_scan.h"
+#include "wlan_hdd_main.h"
 
 /* These are needed to recognize WPA and RSN suite types */
 #define HDD_WPA_OUI_SIZE 4
@@ -230,8 +231,7 @@ hdd_conn_set_authenticated(hdd_adapter_t *pAdapter, uint8_t authState)
 		qdf_mem_set(auth_time, 0x00, time_buffer_size);
 
 	/* Check is pending ROC request or not when auth state changed */
-	queue_delayed_work(system_freezable_wq,
-			&pHddCtx->roc_req_work, 0);
+	schedule_delayed_work(&pHddCtx->roc_req_work, 0);
 }
 
 /**
@@ -269,8 +269,7 @@ void hdd_conn_set_connection_state(hdd_adapter_t *adapter,
 		qdf_mem_set(connect_time, 0x00, time_buffer_size);
 
 	if (conn_state != eConnectionState_NdiConnected)
-		queue_delayed_work(system_freezable_wq,
-			&hdd_ctx->roc_req_work, 0);
+		schedule_delayed_work(&hdd_ctx->roc_req_work, 0);
 }
 
 /**
@@ -2058,7 +2057,9 @@ QDF_STATUS hdd_roam_register_sta(hdd_adapter_t *pAdapter,
 {
 	QDF_STATUS qdf_status = QDF_STATUS_E_FAILURE;
 	struct ol_txrx_desc_type staDesc = { 0 };
+#ifdef WLAN_DEBUG
 	hdd_station_ctx_t *pHddStaCtx = WLAN_HDD_GET_STATION_CTX_PTR(pAdapter);
+#endif
 	struct ol_txrx_ops txrx_ops;
 
 	if (NULL == pBssDesc)
@@ -2309,10 +2310,10 @@ static void hdd_send_re_assoc_event(struct net_device *dev,
 	chan_no = pCsrRoamInfo->pBssDesc->channelId;
 	if (chan_no <= 14)
 		freq = ieee80211_channel_to_frequency(chan_no,
-							NL80211_BAND_2GHZ);
+							HDD_NL80211_BAND_2GHZ);
 	else
 		freq = ieee80211_channel_to_frequency(chan_no,
-							NL80211_BAND_5GHZ);
+							HDD_NL80211_BAND_5GHZ);
 	chan = ieee80211_get_channel(pAdapter->wdev.wiphy, freq);
 
 	sme_roam_get_connect_profile(hal_handle, pAdapter->sessionId,
@@ -5532,8 +5533,7 @@ hdd_sme_roam_callback(void *pContext, tCsrRoamInfo *pRoamInfo, uint32_t roamId,
 		pAdapter->roam_ho_fail = false;
 		pHddStaCtx->ft_carrier_on = false;
 		complete(&pAdapter->roaming_comp_var);
-		queue_delayed_work(system_freezable_wq,
-			&pHddCtx->roc_req_work, 0);
+		schedule_delayed_work(&pHddCtx->roc_req_work, 0);
 		break;
 	case eCSR_ROAM_SAE_COMPUTE:
 		if (pRoamInfo)
