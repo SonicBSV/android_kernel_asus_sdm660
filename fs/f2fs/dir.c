@@ -815,20 +815,21 @@ int f2fs_fill_dentries(struct dir_context *ctx, struct f2fs_dentry_ptr *d,
 		bit_pos += GET_DENTRY_SLOTS(le16_to_cpu(de->name_len));
 		if (unlikely(bit_pos > d->max ||
 				le16_to_cpu(de->name_len) > F2FS_NAME_LEN)) {
-			f2fs_msg(F2FS_I_SB(d->inode)->sb, KERN_WARNING,
-				"%s: corrupted namelen=%d, run fsck to fix.",
-				__func__, le16_to_cpu(de->name_len));
-			set_sbi_flag(F2FS_I_SB(d->inode)->sb->s_fs_info, SBI_NEED_FSCK);
-			return -EINVAL;
+			f2fs_warn(sbi, "%s: corrupted namelen=%d, run fsck to fix.",
+				  __func__, le16_to_cpu(de->name_len));
+			set_sbi_flag(sbi, SBI_NEED_FSCK);
+			err = -EFSCORRUPTED;
+			goto out;
 		}
 
 		if (f2fs_encrypted_inode(d->inode)) {
 			int save_len = fstr->len;
 
-			ret = f2fs_fname_disk_to_usr(d->inode, &de->hash_code,
-							&de_name, fstr);
-			if (ret < 0)
-				return true;
+			err = fscrypt_fname_disk_to_usr(d->inode,
+						(u32)le32_to_cpu(de->hash_code),
+						0, &de_name, fstr);
+			if (err)
+				goto out;
 
 			de_name = *fstr;
 			fstr->len = save_len;
