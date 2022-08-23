@@ -1934,45 +1934,8 @@ static void sdhci_do_set_ios(struct sdhci_host *host, struct mmc_ios *ios)
 		sdhci_enable_sdio_irq_nolock(host, false);
 	spin_unlock_irqrestore(&host->lock, flags);
 
-<<<<<<< HEAD
-	/*
-	 * The controller clocks may be off during power-up and we may end up
-	 * enabling card clock before giving power to the card. Hence, during
-	 * MMC_POWER_UP enable the controller clock and turn-on the regulators.
-	 * The mmc_power_up would provide the necessary delay before turning on
-	 * the clocks to the card.
-	 */
-	if (ios->power_mode & MMC_POWER_UP) {
-		if (host->ops->enable_controller_clock) {
-			ret = host->ops->enable_controller_clock(host);
-			if (ret) {
-				pr_err("%s: enabling controller clock: failed: %d\n",
-				       mmc_hostname(host->mmc), ret);
-			} else {
-				sdhci_set_power(host, ios->power_mode, ios->vdd);
-			}
-		}
-	}
 
-	spin_lock_irqsave(&host->lock, flags);
-	if (!host->clock) {
-		if (host->mmc && host->mmc->card &&
-				mmc_card_sdio(host->mmc->card))
-			sdhci_cfg_irq(host, true, false);
-		spin_unlock_irqrestore(&host->lock, flags);
-		return;
-	}
-	spin_unlock_irqrestore(&host->lock, flags);
-
-	if (!host->ops->enable_controller_clock && (ios->power_mode &
-						    (MMC_POWER_UP |
-						     MMC_POWER_ON)))
-		sdhci_set_power(host, ios->power_mode, ios->vdd);
-
-	spin_lock_irqsave(&host->lock, flags);
-=======
 	__sdhci_set_power(host, ios->power_mode, ios->vdd);
->>>>>>> 24769c71b2ed (mmc: sdhci: Fix regression setting power on Trats2 board)
 
 	if (host->ops->platform_send_init_74_clocks)
 		host->ops->platform_send_init_74_clocks(host, ios->power_mode);
