@@ -136,17 +136,17 @@ static inline char *tfa_cont_profile_name(struct tfa98xx *tfa98xx, int prof_idx)
 	return tfaContProfileName(tfa98xx->tfa->cnt, tfa98xx->tfa->dev_idx, prof_idx);
 }
 
-static enum tfa_error tfa98xx_write_re25(struct tfa_device *tfa, int value)
+static enum Tfa98xx_Error tfa98xx_write_re25(struct tfa_device *tfa, int value)
 {
-	enum tfa_error err;
+	enum Tfa98xx_Error err;
 
 	/* clear MTPEX */
 	err = tfa_dev_mtp_set(tfa, TFA_MTP_EX, 0);
-	if (err == tfa_error_ok) {
+	if (err == Tfa98xx_Error_Ok) {
 		/* set RE25 in shadow regiser */
 		err = tfa_dev_mtp_set(tfa, TFA_MTP_RE25_PRIM, value);
 	}
-	if (err == tfa_error_ok) {
+	if (err == Tfa98xx_Error_Ok) {
 		/* set MTPEX to copy RE25 into MTP  */
 		err = tfa_dev_mtp_set(tfa, TFA_MTP_EX, 2);
 	}
@@ -155,9 +155,9 @@ static enum tfa_error tfa98xx_write_re25(struct tfa_device *tfa, int value)
 }
 
 /* Wrapper for tfa start */
-static enum tfa_error tfa98xx_tfa_start(struct tfa98xx *tfa98xx, int next_profile, int vstep)
+static enum Tfa98xx_Error tfa98xx_tfa_start(struct tfa98xx *tfa98xx, int next_profile, int vstep)
 {
-	enum tfa_error err;
+	enum Tfa98xx_Error err;
 	ktime_t start_time, stop_time;
 	u64 delta_time;
 
@@ -175,10 +175,10 @@ static enum tfa_error tfa98xx_tfa_start(struct tfa98xx *tfa98xx, int next_profil
 		        next_profile, vstep, delta_time);
 	}
 
-	if ((err == tfa_error_ok) && (tfa98xx->set_mtp_cal)) {
-		enum tfa_error err_cal;
+	if ((err == Tfa98xx_Error_Ok) && (tfa98xx->set_mtp_cal)) {
+		enum Tfa98xx_Error err_cal;
 		err_cal = tfa98xx_write_re25(tfa98xx->tfa, tfa98xx->cal_data);
-		if (err_cal != tfa_error_ok) {
+		if (err_cal != Tfa98xx_Error_Ok) {
 			pr_err("Error, setting calibration value in mtp, err=%d\n", err_cal);
 		} else {
 			tfa98xx->set_mtp_cal = false;
@@ -363,7 +363,7 @@ static int tfa98xx_dbgfs_otc_set(void *data, u64 val)
 {
 	struct i2c_client *i2c = (struct i2c_client *)data;
 	struct tfa98xx *tfa98xx = i2c_get_clientdata(i2c);
-	enum tfa_error err;
+	enum Tfa98xx_Error err;
 
 	if (val != 0 && val != 1) {
 		pr_err("[0x%x] Unexpected value %llu\n", tfa98xx->i2c->addr, val);
@@ -374,7 +374,7 @@ static int tfa98xx_dbgfs_otc_set(void *data, u64 val)
 	err = tfa_dev_mtp_set(tfa98xx->tfa, TFA_MTP_OTC, val);
 	mutex_unlock(&tfa98xx->dsp_lock);
 
-	if (err != tfa_error_ok) {
+	if (err != Tfa98xx_Error_Ok) {
 		pr_err("[0x%x] Unable to check DSP access: %d\n", tfa98xx->i2c->addr, err);
 		return -EIO;
 	}
@@ -410,7 +410,7 @@ static int tfa98xx_dbgfs_mtpex_set(void *data, u64 val)
 {
 	struct i2c_client *i2c = (struct i2c_client *)data;
 	struct tfa98xx *tfa98xx = i2c_get_clientdata(i2c);
-	enum tfa_error err;
+	enum Tfa98xx_Error err;
 
 	if (val != 0) {
 		pr_err("[0x%x] Can only clear MTPEX (0 value expected)\n", tfa98xx->i2c->addr);
@@ -421,7 +421,7 @@ static int tfa98xx_dbgfs_mtpex_set(void *data, u64 val)
 	err = tfa_dev_mtp_set(tfa98xx->tfa, TFA_MTP_EX, val);
 	mutex_unlock(&tfa98xx->dsp_lock);
 
-	if (err != tfa_error_ok) {
+	if (err != Tfa98xx_Error_Ok) {
 		pr_err("[0x%x] Unable to check DSP access: %d\n", tfa98xx->i2c->addr, err);
 		return -EIO;
 	}
@@ -460,12 +460,12 @@ static int tfa98xx_dbgfs_temp_set(void *data, u64 val)
 }
 
 static ssize_t tfa98xx_dbgfs_start_set(struct file *file,
-	const char __user *user_buf,
-	size_t count, loff_t *ppos)
+				     const char __user *user_buf,
+				     size_t count, loff_t *ppos)
 {
 	struct i2c_client *i2c = file->private_data;
 	struct tfa98xx *tfa98xx = i2c_get_clientdata(i2c);
-	enum tfa_error ret;
+	enum Tfa98xx_Error ret;
 	char buf[32];
 	const char ref[] = "please calibrate now";
 	int buf_size;
@@ -485,9 +485,9 @@ static ssize_t tfa98xx_dbgfs_start_set(struct file *file,
 
 	mutex_lock(&tfa98xx->dsp_lock);
 	ret = tfa_calibrate(tfa98xx->tfa);
-	if (ret == tfa_error_ok)
+	if (ret == Tfa98xx_Error_Ok)
 		ret = tfa98xx_tfa_start(tfa98xx, tfa98xx->profile, tfa98xx->vstep);
-	if (ret == tfa_error_ok)
+	if (ret == Tfa98xx_Error_Ok)
 			tfa_dev_set_state(tfa98xx->tfa, TFA_STATE_UNMUTE);
 	mutex_unlock(&tfa98xx->dsp_lock);
 
@@ -502,8 +502,8 @@ static ssize_t tfa98xx_dbgfs_start_set(struct file *file,
 }
 
 static ssize_t tfa98xx_dbgfs_r_read(struct file *file,
-	char __user *user_buf, size_t count,
-	loff_t *ppos)
+				     char __user *user_buf, size_t count,
+				     loff_t *ppos)
 {
 	struct i2c_client *i2c = file->private_data;
 	struct tfa98xx *tfa98xx = i2c_get_clientdata(i2c);
@@ -539,14 +539,13 @@ static ssize_t tfa98xx_dbgfs_r_read(struct file *file,
 
 	if (tfa98xx->tfa->spkr_count > 1) {
 		ret = snprintf(str, PAGE_SIZE,
-			"Prim:%d mOhms, Sec:%d mOhms\n",
-			tfa98xx->tfa->mohm[0],
-			tfa98xx->tfa->mohm[1]);
-	}
-	else {
+		              "Prim:%d mOhms, Sec:%d mOhms\n",
+		              tfa98xx->tfa->mohm[0],
+		              tfa98xx->tfa->mohm[1]);
+	} else {
 		ret = snprintf(str, PAGE_SIZE,
-			"Prim:%d mOhms\n",
-			tfa98xx->tfa->mohm[0]);
+		              "Prim:%d mOhms\n",
+		              tfa98xx->tfa->mohm[0]);
 	}
 
 	pr_debug("[0x%x] calib_done: %s", tfa98xx->i2c->addr, str);
@@ -564,8 +563,8 @@ r_c_err:
 }
 
 static ssize_t tfa98xx_dbgfs_version_read(struct file *file,
-	char __user *user_buf, size_t count,
-	loff_t *ppos)
+				     char __user *user_buf, size_t count,
+				     loff_t *ppos)
 {
 	char str[] = TFA98XX_VERSION "\n";
 	int ret;
@@ -576,8 +575,8 @@ static ssize_t tfa98xx_dbgfs_version_read(struct file *file,
 }
 
 static ssize_t tfa98xx_dbgfs_dsp_state_get(struct file *file,
-	char __user *user_buf, size_t count,
-	loff_t *ppos)
+				     char __user *user_buf, size_t count,
+				     loff_t *ppos)
 {
 	struct i2c_client *i2c = file->private_data;
 	struct tfa98xx *tfa98xx = i2c_get_clientdata(i2c);
@@ -595,7 +594,7 @@ static ssize_t tfa98xx_dbgfs_dsp_state_get(struct file *file,
 		str = "Failed init\n";
 		break;
 	case TFA98XX_DSP_INIT_PENDING:
-		str = "Pending init\n";
+		str =  "Pending init\n";
 		break;
 	case TFA98XX_DSP_INIT_DONE:
 		str = "Init complete\n";
@@ -611,12 +610,12 @@ static ssize_t tfa98xx_dbgfs_dsp_state_get(struct file *file,
 }
 
 static ssize_t tfa98xx_dbgfs_dsp_state_set(struct file *file,
-	const char __user *user_buf,
-	size_t count, loff_t *ppos)
+				     const char __user *user_buf,
+				     size_t count, loff_t *ppos)
 {
 	struct i2c_client *i2c = file->private_data;
 	struct tfa98xx *tfa98xx = i2c_get_clientdata(i2c);
-	enum tfa_error ret;
+	enum Tfa98xx_Error ret;
 	char buf[32];
 	const char start_cmd[] = "start";
 	const char stop_cmd[] = "stop";
@@ -624,7 +623,7 @@ static ssize_t tfa98xx_dbgfs_dsp_state_set(struct file *file,
 	const char mon_stop_cmd[] = "monitor stop";
 	int buf_size;
 
-	buf_size = min(count, (size_t)(sizeof(buf) - 1));
+	buf_size = min(count, (size_t)(sizeof(buf)-1));
 	if (copy_from_user(buf, user_buf, buf_size))
 		return -EFAULT;
 	buf[buf_size] = 0;
@@ -657,8 +656,8 @@ static ssize_t tfa98xx_dbgfs_dsp_state_set(struct file *file,
 }
 
 static ssize_t tfa98xx_dbgfs_fw_state_get(struct file *file,
-	char __user *user_buf, size_t count,
-	loff_t *ppos)
+				     char __user *user_buf, size_t count,
+				     loff_t *ppos)
 {
 	struct i2c_client *i2c = file->private_data;
 	struct tfa98xx *tfa98xx = i2c_get_clientdata(i2c);
@@ -675,7 +674,7 @@ static ssize_t tfa98xx_dbgfs_fw_state_get(struct file *file,
 		str = "Fail\n";
 		break;
 	case TFA98XX_DSP_FW_OK:
-		str = "Ok\n";
+		str =  "Ok\n";
 		break;
 	default:
 		str = "Invalid\n";
@@ -686,9 +685,50 @@ static ssize_t tfa98xx_dbgfs_fw_state_get(struct file *file,
 	return simple_read_from_buffer(user_buf, count, ppos, str, strlen(str));
 }
 
+#ifdef CONFIG_SND_SOC_TFA9874
+extern int send_tfa_cal_apr(void *buf, int cmd_size, bool bRead);
+#endif
+
+#ifdef CONFIG_SND_SOC_TFA9874
 static ssize_t tfa98xx_dbgfs_rpc_read(struct file *file,
-	char __user *user_buf, size_t count,
-	loff_t *ppos)
+				     char __user *user_buf, size_t count,
+				     loff_t *ppos)
+{
+	struct i2c_client *i2c = file->private_data;
+	struct tfa98xx *tfa98xx = i2c_get_clientdata(i2c);
+	int ret = 0;
+	uint8_t *buffer;
+
+	buffer = kmalloc(count, GFP_KERNEL);
+	if (buffer == NULL) {
+		pr_err("[0x%x] can not allocate memory\n", i2c->addr);
+		return -ENOMEM;
+	}
+
+	mutex_lock(&tfa98xx->dsp_lock);
+	/* huaqin add for ZQL1820p1-24 by xudayi at 2018/10/31 start */
+	//ret = send_tfa_cal_apr(buffer, count, true);
+	/* huaqin add for ZQL1820p1-24 by xudayi at 2018/10/31 end */
+
+	mutex_unlock(&tfa98xx->dsp_lock);
+	if (ret) {
+		pr_err("[0x%x] dsp_msg_read error: %d\n", i2c->addr, ret);
+		kfree(buffer);
+		return -EFAULT;
+	}
+
+	ret = copy_to_user(user_buf, buffer, count);
+	kfree(buffer);
+	if (ret)
+		return -EFAULT;
+
+	*ppos += count;
+	return count;
+}
+#else
+static ssize_t tfa98xx_dbgfs_rpc_read(struct file *file,
+				     char __user *user_buf, size_t count,
+				     loff_t *ppos)
 {
 	struct i2c_client *i2c = file->private_data;
 	struct tfa98xx *tfa98xx = i2c_get_clientdata(i2c);
@@ -727,10 +767,54 @@ static ssize_t tfa98xx_dbgfs_rpc_read(struct file *file,
 	*ppos += count;
 	return count;
 }
+#endif
 
+#ifdef CONFIG_SND_SOC_TFA9874
 static ssize_t tfa98xx_dbgfs_rpc_send(struct file *file,
-	const char __user *user_buf,
-	size_t count, loff_t *ppos)
+				     const char __user *user_buf,
+				     size_t count, loff_t *ppos)
+{
+	struct i2c_client *i2c = file->private_data;
+	struct tfa98xx *tfa98xx = i2c_get_clientdata(i2c);
+	uint8_t *buffer;
+	int err = 0;
+
+	if (count == 0)
+		return 0;
+
+	/* msg_file.name is not used */
+	buffer = kmalloc(count, GFP_KERNEL);
+	if ( buffer == NULL ) {
+		pr_err("[0x%x] can not allocate memory\n", i2c->addr);
+		return  -ENOMEM;
+	}
+	if (copy_from_user(buffer, user_buf, count))
+		return -EFAULT;
+
+	mutex_lock(&tfa98xx->dsp_lock);
+
+	/* huaqin add for ZQL1820p1-24 by xudayi at 2018/10/31 start */
+	//err = send_tfa_cal_apr(buffer, count, false);
+	/* huaqin add for ZQL1820p1-24 by xudayi at 2018/10/31 end */
+
+	if (err) {
+		pr_err("[0x%x] dsp_msg error: %d\n", i2c->addr, err);
+	}
+
+	mdelay(2);
+
+	mutex_unlock(&tfa98xx->dsp_lock);
+
+	kfree(buffer);
+
+	if (err)
+		return err;
+	return count;
+}
+#else
+static ssize_t tfa98xx_dbgfs_rpc_send(struct file *file,
+				     const char __user *user_buf,
+				     size_t count, loff_t *ppos)
 {
 	struct i2c_client *i2c = file->private_data;
 	struct tfa98xx *tfa98xx = i2c_get_clientdata(i2c);
@@ -779,6 +863,7 @@ static ssize_t tfa98xx_dbgfs_rpc_send(struct file *file,
 		return err;
 	return count;
 }
+#endif
 /* -- RPC */
 
 static int tfa98xx_dbgfs_pga_gain_get(void *data, u64 *val)
@@ -1343,14 +1428,14 @@ static int tfa98xx_set_cal_ctl(struct snd_kcontrol *kcontrol,
 
 	mutex_lock(&tfa98xx_mutex);
 	list_for_each_entry(tfa98xx, &tfa98xx_device_list, list) {
-		enum tfa_error err;
+		enum Tfa98xx_Error err;
 		int i = tfa98xx->tfa->dev_idx;
 
 		tfa98xx->cal_data = (uint16_t)ucontrol->value.integer.value[i];
 
 		mutex_lock(&tfa98xx->dsp_lock);
 		err = tfa98xx_write_re25(tfa98xx->tfa, tfa98xx->cal_data);
-		tfa98xx->set_mtp_cal = (err != tfa_error_ok);
+		tfa98xx->set_mtp_cal = (err != Tfa98xx_Error_Ok);
 		if (tfa98xx->set_mtp_cal == false) {
 			pr_info("Calibration value (%d) set in mtp\n",
 			        tfa98xx->cal_data);
@@ -2717,19 +2802,19 @@ static int tfa98xx_mute(struct snd_soc_dai *dai, int mute, int stream)
 		mutex_unlock(&tfa98xx->dsp_lock);
 	} else {
 		if (stream == SNDRV_PCM_STREAM_PLAYBACK)
-/* Huaqin add for TT:1212051 by xudayi at 2018/08/02 start */
 #ifdef CONFIG_SND_SOC_TFA9874
+/* Huaqin add for optimize nxp pop noise by xudayi at 2018/04/16 start */
 		{
 			tfa98xx->pstream = 1;
 			/* Start DSP */
 			if ((tfa98xx->flags & TFA98XX_FLAG_CHIP_SELECTED) &&
 					(tfa98xx->dsp_init != TFA98XX_DSP_INIT_PENDING))
 				queue_delayed_work(tfa98xx->tfa98xx_wq, &tfa98xx->init_work, 0);
-
 			tfa98xx_adsp_send_calib_values(tfa98xx);
 		}else {
 			tfa98xx->cstream = 1;
 		}
+/* Huaqin add for optimize nxp pop noise by xudayi at 2018/04/16 end */
 #else
 		tfa98xx->pstream = 1;
 		else
@@ -2742,7 +2827,6 @@ static int tfa98xx_mute(struct snd_soc_dai *dai, int mute, int stream)
 				queue_delayed_work(tfa98xx->tfa98xx_wq,
 						&tfa98xx->init_work, 0);
 #endif
-/* Huaqin add for TT:1212051 by xudayi at 2018/08/02 end */
 	}
 
 	return 0;
