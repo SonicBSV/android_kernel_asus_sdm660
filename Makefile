@@ -339,7 +339,7 @@ include scripts/Kbuild.include
 # Make variables (CC, etc...)
 AS		= $(CROSS_COMPILE)as
 LD		= $(CROSS_COMPILE)ld
-REAL_CC		= $(CROSS_COMPILE)gcc
+CC		= $(CROSS_COMPILE)gcc
 CPP		= $(CC) -E
 AR		= $(CROSS_COMPILE)ar
 NM		= $(CROSS_COMPILE)nm
@@ -353,10 +353,6 @@ DEPMOD		= depmod
 PERL		= perl
 PYTHON		= python
 CHECK		= sparse
-
-# Use the wrapper for the compiler.  This wrapper scans for new
-# warnings and causes the build to stop upon encountering them.
-CC		= $(PYTHON) $(srctree)/scripts/gcc-wrapper.py $(REAL_CC)
 
 CHECKFLAGS     := -D__linux__ -Dlinux -D__STDC__ -Dunix -D__unix__ \
 		  -Wbitwise -Wno-return-void $(CF)
@@ -394,19 +390,6 @@ KBUILD_CFLAGS   := -Wall -Wundef -Wstrict-prototypes -Wno-trigraphs \
 		   -Werror-implicit-function-declaration \
 		   -Wno-format-security \
 		   -std=gnu89 $(call cc-option,-fno-PIE)
-
-# TODO: remove me b/62057517
-KBUILD_CFLAGS += \
-	-Wno-address-of-packed-member \
-	-Wno-unneeded-internal-declaration \
-	-Wno-enum-conversion \
-	-Wno-section \
-	-Wno-duplicate-decl-specifier \
-	-Wno-array-bounds \
-	-Wno-logical-not-parentheses \
-	-Wno-constant-conversion \
-	-Wno-parentheses-equality \
-	-Wno-gcc-compat \
 
 ifeq ($(TARGET_BOARD_TYPE),auto)
 KBUILD_CFLAGS    += -DCONFIG_PLATFORM_AUTO
@@ -628,35 +611,24 @@ all: vmlinux
 
 ifeq ($(cc-name),clang)
 ifneq ($(CROSS_COMPILE),)
-CLANG_TARGET	:= --target=$(notdir $(CROSS_COMPILE:%-=%))
+CLANG_TRIPLE	?= $(CROSS_COMPILE)
+CLANG_FLAGS    += --target=$(notdir $(CLANG_TRIPLE:%-=%))
+ifeq ($(shell $(srctree)/scripts/clang-android.sh $(CC) $(CLANG_FLAGS)), y)
+$(error "Clang with Android --target detected. Did you specify CLANG_TRIPLE?")
+endif
 GCC_TOOLCHAIN_DIR := $(dir $(shell which $(CROSS_COMPILE)elfedit))
-CLANG_PREFIX	:= --prefix=$(GCC_TOOLCHAIN_DIR)$(notdir $(CROSS_COMPILE))
+CLANG_FLAGS	+= --prefix=$(GCC_TOOLCHAIN_DIR)$(notdir $(CROSS_COMPILE))
 GCC_TOOLCHAIN	:= $(realpath $(GCC_TOOLCHAIN_DIR)/..)
 endif
 ifneq ($(GCC_TOOLCHAIN),)
-CLANG_GCC_TC	:= --gcc-toolchain=$(GCC_TOOLCHAIN)
+CLANG_FLAGS	+= --gcc-toolchain=$(GCC_TOOLCHAIN)
 endif
-KBUILD_CFLAGS += $(CLANG_FLAGS) $(CLANG_GCC_TC)
-KBUILD_AFLAGS += $(CLANG_FLAGS) $(CLANG_GCC_TC)
-KBUILD_CPPFLAGS += $(call cc-option,-Qunused-arguments,)
-KBUILD_CFLAGS += $(call cc-disable-warning, format-invalid-specifier)
-KBUILD_CFLAGS += $(call cc-disable-warning, gnu)
-KBUILD_CFLAGS += $(call cc-disable-warning, address-of-packed-member)
-KBUILD_CFLAGS += $(call cc-disable-warning, duplicate-decl-specifier)
-# Quiet clang warning: comparison of unsigned expression < 0 is always false
-KBUILD_CFLAGS += $(call cc-disable-warning, tautological-compare)
-# CLANG uses a _MergedGlobals as optimization, but this breaks modpost, as the
-# source of a reference will be _MergedGlobals and not on of the whitelisted names.
-# See modpost pattern 2
-KBUILD_CFLAGS += $(call cc-option, -mno-global-merge,)
-KBUILD_CFLAGS += $(call cc-option, -fcatch-undefined-behavior)
-KBUILD_CFLAGS += $(call cc-option, -no-integrated-as)
-KBUILD_AFLAGS += $(call cc-option, -no-integrated-as)
-else
-
-# These warnings generated too much noise in a regular build.
-# Use make W=1 to enable them (see scripts/Makefile.build)
-KBUILD_CFLAGS += $(call cc-disable-warning, unused-but-set-variable)
+CLANG_FLAGS	+= -no-integrated-as
+CLANG_FLAGS	+= -Werror=unknown-warning-option
+CLANG_FLAGS    += $(call cc-option, -Wno-misleading-indentation)
+CLANG_FLAGS    += $(call cc-option, -Wno-bool-operation)
+KBUILD_CFLAGS	+= $(CLANG_FLAGS)
+KBUILD_AFLAGS	+= $(CLANG_FLAGS)
 endif
 
 # The arch Makefile can set ARCH_{CPP,A,C}FLAGS to override the default
@@ -683,6 +655,21 @@ else
 KBUILD_CFLAGS   += -O2
 endif
 endif
+
+# disable warning: tokens terminating statement expression are separated by whitespace on latest clang 12
+ifeq ($(cc-name),clang)
+KBUILD_CFLAGS	+= $(call cc-disable-warning,compound-token-split-by-space)
+endif
+
+KBUILD_CFLAGS += $(call cc-ifversion, -gt, 0900, \
+			$(call cc-option, -Wno-psabi) \
+			$(call cc-disable-warning,maybe-uninitialized,) \
+			$(call cc-disable-warning,format,) \
+			$(call cc-disable-warning,array-bounds,) \
+			$(call cc-disable-warning,stringop-overflow,))
+
+KBUILD_CFLAGS += $(call cc-ifversion, -lt, 0409, \
+			$(call cc-disable-warning,maybe-uninitialized,))
 
 # Tell gcc to never replace conditional load with a non-conditional one
 KBUILD_CFLAGS	+= $(call cc-option,--param=allow-store-data-races=0)
@@ -759,8 +746,8 @@ KBUILD_CFLAGS += $(call cc-disable-warning, format-invalid-specifier)
 KBUILD_CFLAGS += $(call cc-disable-warning, gnu)
 KBUILD_CFLAGS += $(call cc-disable-warning, duplicate-decl-specifier)
 KBUILD_CFLAGS += $(call cc-option, -Wno-undefined-optimized)
-KBUILD_CFLAGS += -Wno-tautological-constant-out-of-range-compare
-KBUILD_CFLAGS += $(call cc-disable-warning, pointer-bool-conversion)
+KBUILD_CFLAGS += $(call cc-option, -Wno-tautological-constant-out-of-range-compare)
+
 # Quiet clang warning: comparison of unsigned expression < 0 is always false
 KBUILD_CFLAGS += $(call cc-disable-warning, tautological-compare)
 # CLANG uses a _MergedGlobals as optimization, but this breaks modpost, as the
